@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Connection check</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E📡%3C/text%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#eef1f5; --ink:#12161d; --muted:#5b6474; --line:#d5dae3; --panel:#ffffff;
+    --ok:#12805a;   --ok-bg:#dff3ea;
+    --warn:#a96300; --warn-bg:#fbeccd;
+    --bad:#c22f2b;  --bad-bg:#fadcda;
+    --run:#2f5bea;  --run-bg:#e2e9ff;
+    --idle:#a3abb9; --idle-bg:#e4e7ed;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#0d1015; --ink:#e9ecf2; --muted:#98a1b1; --line:#262b35; --panel:#151920;
+      --ok:#3fcf92;   --ok-bg:#11291f;
+      --warn:#f0b04c; --warn-bg:#2b2211;
+      --bad:#ff7a76;  --bad-bg:#301818;
+      --run:#849cff;  --run-bg:#172040;
+      --idle:#566073; --idle-bg:#1c2029;
+    }
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.5 var(--sans);
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  main{
+    --tone:var(--run); --tone-bg:var(--run-bg);
+    max-width:760px; margin:0 auto; padding:32px 20px 56px;
+  }
+  main[data-tone="ok"]  {--tone:var(--ok);  --tone-bg:var(--ok-bg)}
+  main[data-tone="warn"]{--tone:var(--warn);--tone-bg:var(--warn-bg)}
+  main[data-tone="bad"] {--tone:var(--bad); --tone-bg:var(--bad-bg)}
+  main[data-tone="idle"]{--tone:var(--idle);--tone-bg:var(--idle-bg)}
+
+  button{font:inherit;color:inherit}
+  :focus-visible{outline:3px solid var(--run); outline-offset:2px; border-radius:6px}
+
+  /* Header */
+  header{margin-bottom:24px}
+  h1{font-size:15px; font-weight:600; margin:0 0 2px; color:var(--muted); letter-spacing:.01em}
+  .target{font-size:15px; color:var(--muted); margin:0}
+  .target b{color:var(--ink); font-weight:600; overflow-wrap:anywhere}
+
+  /* Verdict */
+  .verdict{
+    background:var(--tone-bg); border-radius:22px; padding:26px 26px 24px;
+    display:grid; grid-template-columns:auto 1fr; gap:6px 20px;
+    border:1px solid color-mix(in srgb, var(--tone) 28%, transparent);
+  }
+  .v-mark{
+    width:56px; height:56px; border-radius:50%; display:grid; place-items:center;
+    background:var(--tone); color:var(--bg); font-size:28px; font-weight:700; line-height:1;
+    grid-row:1 / span 2;
+  }
+  .v-mark::before{content:""}
+  main[data-tone="ok"]   .v-mark::before{content:"✓"}
+  main[data-tone="warn"] .v-mark::before{content:"!"}
+  main[data-tone="bad"]  .v-mark::before{content:"✕"}
+  main[data-tone="idle"] .v-mark::before{content:"?"}
+  main[data-tone="run"]  .v-mark{background:transparent; border:4px solid color-mix(in srgb, var(--run) 25%, transparent); border-top-color:var(--run); animation:spin .9s linear infinite}
+  .verdict h2{font-size:clamp(24px,5.2vw,34px); line-height:1.12; letter-spacing:-.02em; font-weight:750; margin:0; align-self:end}
+  .who{margin:2px 0 0; font-size:14px; font-weight:600; color:var(--tone)}
+  .who small{font-weight:500; color:var(--muted); font-size:14px}
+  .v-body{grid-column:1 / -1; margin:14px 0 0; font-size:16.5px; line-height:1.55; max-width:62ch}
+  .tips{grid-column:1 / -1; margin-top:18px; padding-top:16px; border-top:1px solid color-mix(in srgb, var(--tone) 25%, transparent)}
+  .tips h3{margin:0 0 10px; font-size:15px; font-weight:650}
+  .tips ol{margin:0; padding:0; list-style:none; counter-reset:t; display:grid; gap:9px}
+  .tips li{counter-increment:t; display:grid; grid-template-columns:24px 1fr; gap:10px; font-size:15.5px; line-height:1.5; max-width:62ch}
+  .tips li::before{content:counter(t); width:24px; height:24px; border-radius:50%; background:var(--panel); color:var(--tone); font:650 13px/24px var(--sans); text-align:center}
+
+  /* Sections */
+  section.block{margin-top:34px}
+  .block > h2{font-size:15px; font-weight:650; margin:0 0 4px}
+  .block > p.hint{margin:0 0 18px; color:var(--muted); font-size:14.5px}
+
+  /* Path */
+  .nodes{list-style:none; margin:0; padding:0; display:flex}
+  .node{
+    --c:var(--idle); --cb:var(--idle-bg);
+    flex:1; position:relative; display:flex; flex-direction:column; align-items:center; text-align:center; padding:0 3px;
+  }
+  .node[data-state="ok"]  {--c:var(--ok);  --cb:var(--ok-bg)}
+  .node[data-state="warn"]{--c:var(--warn);--cb:var(--warn-bg)}
+  .node[data-state="fail"]{--c:var(--bad); --cb:var(--bad-bg)}
+  .node[data-state="run"] {--c:var(--run); --cb:var(--run-bg)}
+  .orb{
+    position:relative; z-index:1; width:56px; height:56px; border-radius:50%;
+    display:grid; place-items:center; background:var(--cb); color:var(--c); border:2.5px solid var(--c);
+    transition:background .3s, border-color .3s, color .3s;
+  }
+  .orb svg{width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+  .node[data-state="idle"] .orb, .node[data-state="unknown"] .orb{border-style:dashed}
+  .node[data-state="run"] .orb{animation:pulse 1.3s ease-out infinite}
+  .badge{
+    position:absolute; right:-6px; top:-6px; width:22px; height:22px; border-radius:50%;
+    background:var(--c); color:var(--bg); font:700 12px/22px var(--sans); text-align:center;
+    border:2px solid var(--bg); display:none;
+  }
+  .node[data-state="ok"]   .badge{display:block} .node[data-state="ok"]   .badge::before{content:"✓"}
+  .node[data-state="warn"] .badge{display:block} .node[data-state="warn"] .badge::before{content:"!"}
+  .node[data-state="fail"] .badge{display:block} .node[data-state="fail"] .badge::before{content:"✕"}
+  .txt{margin-top:11px}
+  .label{font-size:14.5px; font-weight:650; line-height:1.25}
+  .side{display:none; font-size:12.5px; color:var(--muted); font-weight:500; margin-left:6px}
+  .detail{margin-top:3px; font-size:13px; line-height:1.35; color:var(--muted); max-width:132px; min-height:2.7em}
+
+  .node:not(:last-child)::after{
+    content:""; position:absolute; top:27px; left:calc(50% + 33px); width:calc(100% - 66px); height:3px; border-radius:3px;
+    background:repeating-linear-gradient(90deg, var(--idle) 0 5px, transparent 5px 10px);
+  }
+  .node[data-link="ok"]::after  {background:var(--ok)}
+  .node[data-link="warn"]::after{background:var(--warn)}
+  .node[data-link="bad"]::after {background:repeating-linear-gradient(90deg, var(--bad) 0 6px, transparent 6px 11px)}
+  .node[data-link="run"]::after {background:repeating-linear-gradient(90deg, var(--run) 0 6px, transparent 6px 12px); background-size:24px 100%; animation:flowX .7s linear infinite}
+
+  .sides{display:flex; gap:10px; margin-top:16px}
+  .sides span{position:relative; padding-top:11px; text-align:center; font-size:13.5px; font-weight:600; color:var(--muted); transition:color .3s}
+  .sides span::before{
+    content:""; position:absolute; left:6px; right:6px; top:0; height:7px;
+    border:2px solid var(--line); border-bottom:0; border-radius:8px 8px 0 0; transition:border-color .3s;
+  }
+  .sides .you{flex:3} .sides .us{flex:2}
+  .sides .hot{color:var(--tone)}
+  .sides .hot::before{border-color:var(--tone)}
+
+  /* Response times */
+  .rows{display:grid; gap:14px}
+  .row{display:grid; grid-template-columns:150px 1fr auto; gap:14px; align-items:end}
+  .row .name{font-size:14.5px; font-weight:600; align-self:center}
+  .bars{display:flex; align-items:flex-end; gap:6px; height:46px; border-bottom:2px solid var(--line)}
+  .bar{width:20px; min-height:6px; border-radius:6px 6px 2px 2px; background:var(--ok); transition:height .3s}
+  .bar.slow{background:var(--warn)}
+  .bar.fail{height:100%; background:transparent; border:2px dashed var(--bad); border-bottom:0; opacity:.75}
+  .val{font-size:14px; color:var(--muted); font-variant-numeric:tabular-nums; min-width:96px; text-align:right; align-self:center}
+
+  /* Buttons */
+  .actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:34px}
+  .btn{
+    appearance:none; cursor:pointer; padding:11px 18px; border-radius:12px; font-weight:600; font-size:15px;
+    background:transparent; border:1.5px solid var(--line); color:var(--ink);
+  }
+  .btn:hover{border-color:var(--muted)}
+  .btn.primary{background:var(--ink); color:var(--bg); border-color:var(--ink)}
+  .btn:disabled{opacity:.5; cursor:default}
+
+  /* Log */
+  details{margin-top:26px; border-top:1px solid var(--line); padding-top:16px}
+  summary{cursor:pointer; font-weight:600; font-size:15px}
+  table{width:100%; border-collapse:collapse; margin-top:12px; font-size:14px}
+  th,td{text-align:left; padding:8px 8px 8px 0; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-weight:600; color:var(--muted); font-size:13px}
+  td.t{font-variant-numeric:tabular-nums; white-space:nowrap}
+  .dot{display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; background:var(--idle)}
+  .dot.ok{background:var(--ok)} .dot.fail{background:var(--bad)} .dot.warn{background:var(--warn)}
+
+  footer{margin-top:30px; font-size:13.5px; color:var(--muted); display:grid; gap:4px}
+  footer .offline{color:var(--ok); font-weight:600}
+  noscript p{padding:16px; background:var(--warn-bg); border-radius:12px}
+
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--run) 45%, transparent)}100%{box-shadow:0 0 0 14px transparent}}
+  @keyframes flowX{to{background-position:24px 0}}
+  @keyframes flowY{to{background-position:0 24px}}
+
+  @media (max-width:640px){
+    main{padding:24px 16px 48px}
+    .verdict{padding:20px 18px; grid-template-columns:auto 1fr; gap:4px 14px}
+    .v-mark{width:46px; height:46px; font-size:23px}
+    .nodes{flex-direction:column}
+    .node{flex-direction:row; align-items:flex-start; text-align:left; gap:16px; padding:0 0 20px}
+    .orb{flex:none}
+    .txt{margin-top:2px}
+    .side{display:inline}
+    .detail{max-width:none; min-height:0}
+    .node:not(:last-child)::after{
+      top:62px; bottom:2px; left:27px; width:3px; height:auto;
+      background:repeating-linear-gradient(180deg, var(--idle) 0 5px, transparent 5px 10px);
+    }
+    .node[data-link="bad"]::after{background:repeating-linear-gradient(180deg, var(--bad) 0 6px, transparent 6px 11px)}
+    .node[data-link="run"]::after{background:repeating-linear-gradient(180deg, var(--run) 0 6px, transparent 6px 12px); background-size:100% 24px; animation:flowY .7s linear infinite}
+    .sides{display:none}
+    .row{grid-template-columns:1fr auto; }
+    .row .name{grid-column:1 / -1}
+  }
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.001s!important; animation-iteration-count:1!important; transition:none!important}
+  }
+</style>
+</head>
+<body>
+<main id="app" data-tone="run">
+  <header>
+    <h1 id="site-title">Connection check</h1>
+    <p class="target">Testing the path between your device and <b id="host">…</b></p>
+  </header>
+
+  <noscript><p>This check needs JavaScript. Please enable it and reload this page.</p></noscript>
+
+  <section class="verdict" role="status" aria-live="polite" aria-atomic="true">
+    <div class="v-mark" aria-hidden="true"></div>
+    <div>
+      <h2 id="v-title">Checking your connection…</h2>
+      <p class="who" id="v-who">This takes a few seconds.</p>
+    </div>
+    <p class="v-body" id="v-body" hidden></p>
+    <div class="tips" id="v-tips" hidden>
+      <h3>What you can try</h3>
+      <ol id="v-tip-list"></ol>
+    </div>
+  </section>
+
+  <section class="block" aria-label="Connection path">
+    <h2>Where the connection breaks</h2>
+    <p class="hint">Each step has to work for the next one to work.</p>
+
+    <ol class="nodes">
+      <li class="node" id="n-device" data-state="idle">
+        <div class="orb"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="2"/><path d="M2 19.5h20"/></svg><i class="badge"></i></div>
+        <div class="txt"><div class="label">Your device<span class="side">Your side</span></div><div class="detail">Waiting…</div></div>
+      </li>
+      <li class="node" id="n-net" data-state="idle">
+        <div class="orb"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3.2 3.6 3.2 14.4 0 18M12 3c-3.2 3.6-3.2 14.4 0 18"/></svg><i class="badge"></i></div>
+        <div class="txt"><div class="label">Your internet<span class="side">Your side</span></div><div class="detail">Waiting…</div></div>
+      </li>
+      <li class="node" id="n-dns" data-state="idle">
+        <div class="orb"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M20 20l-5.2-5.2"/></svg><i class="badge"></i></div>
+        <div class="txt"><div class="label">Name lookup<span class="side">Your side</span></div><div class="detail">Waiting…</div></div>
+      </li>
+      <li class="node" id="n-domain" data-state="idle">
+        <div class="orb"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3A4 4 0 0 0 11 18.7l1-1"/></svg><i class="badge"></i></div>
+        <div class="txt"><div class="label">Our domain<span class="side">Our side</span></div><div class="detail">Waiting…</div></div>
+      </li>
+      <li class="node" id="n-server" data-state="idle">
+        <div class="orb"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6.5" rx="1.8"/><rect x="3" y="13.5" width="18" height="6.5" rx="1.8"/><path d="M7 7.3h.01M7 16.8h.01"/></svg><i class="badge"></i></div>
+        <div class="txt"><div class="label">Our server<span class="side">Our side</span></div><div class="detail">Waiting…</div></div>
+      </li>
+    </ol>
+    <div class="sides" id="sides" aria-hidden="true"><span class="you">Your side</span><span class="us">Our side</span></div>
+  </section>
+
+  <section class="block" aria-label="Response times">
+    <h2>Response times</h2>
+    <p class="hint">Shorter bars are faster. A dashed bar means no reply.</p>
+    <div class="rows">
+      <div class="row" id="row-ref"><span class="name">Other websites</span><div class="bars"></div><span class="val">—</span></div>
+      <div class="row" id="row-srv"><span class="name">Our server</span><div class="bars"></div><span class="val">—</span></div>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button class="btn primary" id="again" type="button">Run the check again</button>
+    <button class="btn" id="retry" type="button">Try the website again</button>
+    <button class="btn" id="copy" type="button">Copy report for support</button>
+  </div>
+
+  <details>
+    <summary>Test details</summary>
+    <table>
+      <thead><tr><th>Test</th><th>Result</th><th>Time</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+  </details>
+
+  <footer>
+    <span id="support"></span>
+    <span id="stamp"></span>
+    <span class="offline" id="offline-badge" hidden>This page is saved on your device and works without a connection.</span>
+  </footer>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+/* ───────────────────────── Configuration ───────────────────────── */
+const CONFIG = {
+  SITE_NAME:    'Your App',          // shown in the page title
+  SERVER_URL:   '/healthz',          // Any URL on your server that returns any HTTP response.
+                                     // Same-origin → status codes are readable (5xx = "server error").
+                                     // Cross-origin (e.g. 'https://app.example.com/healthz') → only reachable / not reachable.
+  HOME_URL:     '/',                 // where "Try the website again" goes
+  SUPPORT_TEXT: 'Still stuck? Contact support and paste the report from the button above.',
+  SW_URL:       '/sw.js',            // '' disables offline caching
+  SAMPLES:      5,                   // requests sent to the server
+  TIMEOUT_MS:   6000,                // per server request
+  REF_TIMEOUT_MS: 5000,              // per reference request
+  SLOW_MS:      1500,                // above this median a response counts as "slow"
+};
+
+/* Independent reference targets. "ip" targets are addressed by IP number, so they work even when DNS is broken. */
+const REFS = [
+  { name:'Cloudflare (by IP)',  kind:'ip',   url:'https://1.1.1.1/cdn-cgi/trace' },
+  { name:'Google (by IP)',      kind:'ip',   url:'https://8.8.8.8/' },
+  { name:'Google (by name)',    kind:'host', url:'https://www.gstatic.com/generate_204' },
+  { name:'Cloudflare (by name)',kind:'host', url:'https://www.cloudflare.com/cdn-cgi/trace' },
+  { name:'Apple (by name)',     kind:'host', url:'https://www.apple.com/library/test/success.html' },
+];
+
+/* ───────────────────────── Helpers ───────────────────────── */
+const $ = s => document.querySelector(s);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const median = a => { if (!a.length) return null; const s=[...a].sort((x,y)=>x-y), m=s.length>>1; return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
+const fmt = ms => ms == null ? '—' : (ms < 10 ? ms.toFixed(1) : Math.round(ms)) + ' ms';
+const isIP = h => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(':');
+
+let serverURL;
+try { serverURL = new URL(CONFIG.SERVER_URL, location.href); } catch { serverURL = new URL('/healthz', location.href); }
+const HOST = serverURL.hostname || location.host || 'the server';
+const READABLE = serverURL.origin === location.origin;   // can we read HTTP status codes?
+
+$('#host').textContent = HOST;
+document.title = 'Connection check' + (CONFIG.SITE_NAME ? ' · ' + CONFIG.SITE_NAME : '');
+$('#site-title').textContent = 'Connection check' + (CONFIG.SITE_NAME ? ' · ' + CONFIG.SITE_NAME : '');
+$('#support').textContent = CONFIG.SUPPORT_TEXT;
+
+/* One timed request. Never throws. */
+async function probe(url, { timeout = 6000, readable = false } = {}) {
+  const ctrl = new AbortController();
+  let timedOut = false;
+  const t0 = performance.now();
+  const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeout);
+  try {
+    const u = new URL(url, location.href);
+    u.searchParams.set('_nc', Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+    const res = await fetch(u.href, {
+      method: 'GET',
+      mode: readable ? 'same-origin' : 'no-cors',   // no-cors: we only learn "something answered"
+      redirect: readable ? 'follow' : 'manual',
+      cache: 'no-store',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
+      signal: ctrl.signal,
+    });
+    return { ok: true, ms: performance.now() - t0, status: readable ? res.status : null };
+  } catch (e) {
+    return { ok: false, ms: performance.now() - t0, timedOut, status: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Ask public DNS-over-HTTPS resolvers whether the server's domain exists at all. */
+async function doh(host) {
+  if (!host || isIP(host) || host === 'localhost') return { skipped: true };
+  const endpoints = [
+    'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(host) + '&type=A',
+    'https://dns.google/resolve?name=' + encodeURIComponent(host) + '&type=A',
+  ];
+  for (const ep of endpoints) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    try {
+      const res = await fetch(ep, { headers: { accept: 'application/dns-json' }, cache: 'no-store', credentials: 'omit', signal: ctrl.signal });
+      const j = await res.json();
+      const ips = (j.Answer || []).filter(a => a.type === 1).map(a => a.data);
+      if (j.Status === 0 && ips.length) return { ok: true, ips };
+      if (j.Status === 3) return { nx: true };
+      if (j.Status === 2) return { servfail: true };
+      if (j.Status === 0) return { unknown: true };   // e.g. IPv6-only host
+    } catch { /* try next resolver */ }
+    finally { clearTimeout(timer); }
+  }
+  return { unknown: true };
+}
+
+/* ───────────────────────── UI plumbing ───────────────────────── */
+const app = $('#app');
+const ORDER = ['device', 'net', 'dns', 'domain', 'server'];
+const nodeEl = Object.fromEntries(ORDER.map(id => [id, $('#n-' + id)]));
+
+function updateLinks() {
+  ORDER.forEach((id, i) => {
+    const next = ORDER[i + 1]; if (!next) return;
+    const cur = nodeEl[id].dataset.state, nx = nodeEl[next].dataset.state;
+    if (cur === 'fail' || cur === 'unknown' || cur === 'idle') { nodeEl[id].dataset.link = 'idle'; return; }
+    nodeEl[id].dataset.link = ({ ok:'ok', warn:'warn', fail:'bad', run:'run' })[nx] || 'idle';
+  });
+}
+function setNode(id, state, detail) {
+  nodeEl[id].dataset.state = state;
+  if (detail != null) nodeEl[id].querySelector('.detail').textContent = detail;
+  updateLinks();
+}
+function addBar(rowId, r) {
+  const b = document.createElement('span'); b.className = 'bar';
+  if (r.ok) { b.style.height = Math.max(8, Math.min(100, r.ms / CONFIG.SLOW_MS * 100)) + '%'; if (r.ms > CONFIG.SLOW_MS) b.classList.add('slow'); b.title = fmt(r.ms); }
+  else { b.classList.add('fail'); b.title = 'No reply'; }
+  $('#' + rowId + ' .bars').appendChild(b);
+}
+const setVal = (rowId, t) => { $('#' + rowId + ' .val').textContent = t; };
+function addLog(name, result, r, state) {
+  const tr = document.createElement('tr');
+  const a = document.createElement('td'), b = document.createElement('td'), c = document.createElement('td');
+  const dot = document.createElement('span'); dot.className = 'dot ' + state;
+  a.textContent = name; b.append(dot, document.createTextNode(result));
+  c.className = 't'; c.textContent = r && r.ms != null ? fmt(r.ms) : '—';
+  tr.append(a, b, c); $('#log').appendChild(tr);
+}
+
+function reset() {
+  ORDER.forEach(id => setNode(id, 'idle', 'Waiting…'));
+  $('#row-ref .bars').replaceChildren(); $('#row-srv .bars').replaceChildren();
+  setVal('row-ref', '—'); setVal('row-srv', '—');
+  $('#log').replaceChildren();
+  app.dataset.tone = 'run';
+  $('#v-title').textContent = 'Checking your connection…';
+  $('#v-who').textContent = 'This takes a few seconds.';
+  $('#v-body').hidden = true; $('#v-tips').hidden = true;
+  document.querySelectorAll('#sides span').forEach(s => s.classList.remove('hot'));
+}
+
+function connInfo() {
+  const c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+  if (!c) return '';
+  const bits = [];
+  if (c.type) bits.push(c.type);
+  if (c.effectiveType) bits.push(c.effectiveType);
+  if (c.rtt != null) bits.push('rtt ' + c.rtt + ' ms');
+  if (c.downlink != null) bits.push(c.downlink + ' Mbps');
+  return bits.join(', ');
+}
+
+/* ───────────────────────── Analysis ───────────────────────── */
+function analyse(d) {
+  const { refs, doh: dn, samples, onLine } = d;
+  const refsOk   = refs.filter(x => x.r.ok);
+  const ipOk     = refs.some(x => x.kind === 'ip'   && x.r.ok);
+  const hostOk   = refs.some(x => x.kind === 'host' && x.r.ok);
+  const internet = refsOk.length > 0;
+  const okS      = samples.filter(s => s.ok);
+  const reach    = okS.length > 0;
+  const statuses = okS.map(s => s.status).filter(Boolean);
+  const worst    = statuses.length ? Math.max(...statuses) : null;
+  const srvErr   = worst !== null && worst >= 500;
+  const srvMed   = median(okS.map(s => s.ms));
+  const refMed   = median(refsOk.map(x => x.r.ms));
+  const loss     = samples.length ? 1 - okS.length / samples.length : 1;
+  const slow     = srvMed !== null && srvMed > CONFIG.SLOW_MS;
+  const refSlow  = refMed !== null && refMed > CONFIG.SLOW_MS * 0.66;
+  const dnsBroken = ipOk && !hostOk;
+  const allTimedOut = samples.length > 0 && samples.every(s => s.timedOut);
+  const conn = connInfo();
+
+  /* Node states */
+  const N = {};
+  N.device = onLine === false
+    ? { s: (internet || reach) ? 'warn' : 'fail', t: 'Your browser says it is offline' }
+    : { s: 'ok', t: 'Online' + (conn ? ' (' + conn + ')' : '') };
+  N.net = internet
+    ? { s: refsOk.length / refs.length >= 0.5 ? 'ok' : 'warn', t: refsOk.length + ' of ' + refs.length + ' test sites reachable' }
+    : reach ? { s: 'warn', t: 'Test sites blocked, but our server answered' }
+            : { s: 'fail', t: 'No websites could be reached' };
+  N.dns = (hostOk || (reach && !dn.skipped && !isIP(HOST)))
+    ? { s: 'ok', t: 'Website names resolve' }
+    : dnsBroken ? { s: 'fail', t: 'Cannot look up website names' }
+                : { s: 'unknown', t: 'Not tested' };
+  N.domain = dn.skipped ? { s: 'unknown', t: 'Not applicable' }
+    : dn.ok      ? { s: 'ok',   t: 'Resolves to ' + dn.ips[0] }
+    : dn.nx      ? { s: 'fail', t: 'Domain not found' }
+    : dn.servfail? { s: 'fail', t: 'Domain DNS is failing' }
+    : reach      ? { s: 'ok',   t: 'Resolves (could not double-check)' }
+                 : { s: 'unknown', t: 'Could not check' };
+  N.server = !reach
+    ? { s: 'fail', t: allTimedOut ? 'No answer (timed out)' : 'Connection refused or failed' }
+    : srvErr ? { s: 'fail', t: 'Answered with HTTP ' + worst }
+    : (loss > 0) ? { s: 'warn', t: okS.length + ' of ' + samples.length + ' replies received' }
+    : slow ? { s: 'warn', t: 'Slow: ' + fmt(srvMed) }
+    : { s: 'ok', t: 'Answered in ' + fmt(srvMed) + (worst ? ' (HTTP ' + worst + ')' : '') };
+
+  /* Anything after a failure on your side can't be judged */
+  const firstMine = ['device', 'net', 'dns'].findIndex(id => N[id].s === 'fail');
+  if (firstMine !== -1) {
+    ORDER.slice(firstMine + 1).forEach(id => {
+      if (N[id].s === 'fail') N[id] = { s: 'unknown', t: 'Not reached — blocked earlier' };
+    });
+  }
+
+  /* Verdict */
+  let v;
+  if (reach) {
+    if (srvErr) {
+      v = { tone:'bad', side:'us', conf:'Confident',
+        title:'Our server is reachable but reporting an error',
+        body:'Your connection works and it reached ' + HOST + ', but the server answered with an error (HTTP ' + worst + '). That is a problem on our end, not with your network.',
+        tips:['Wait a few minutes and reload the page. Errors like this are often short-lived.','If it keeps happening, contact support and include the report.'] };
+    } else if (loss > 0) {
+      const shaky = refsOk.length < refs.length || refSlow;
+      v = shaky
+        ? { tone:'warn', side:'you', conf:'Likely',
+            title:'Your connection is unstable',
+            body:'Some requests to ' + HOST + ' were lost, and other websites struggled too. That points to a weak or congested link on your side, such as Wi-Fi signal, your provider, or a busy network.',
+            tips:['Move closer to your router, or switch to a cable.','Pause large downloads, video calls or streams, then run the check again.','Restart your router: unplug for 30 seconds, then plug back in.','Try another network, such as mobile data.'] }
+        : { tone:'warn', side:'unclear', conf:'Not certain',
+            title:'The connection to our server is unreliable',
+            body:'Some requests to ' + HOST + ' were lost while other websites were fine. Either our server is having intermittent trouble, or something between you and us is dropping traffic.',
+            tips:['Wait a few minutes and run the check again.','Try mobile data or another network. If it works there, the issue is on your usual network.','If it keeps happening, contact support and include the report.'] };
+    } else if (slow) {
+      v = refSlow
+        ? { tone:'warn', side:'you', conf:'Likely',
+            title:'Your internet connection is slow',
+            body:'Everything is reachable, but responses from all sites, not just ours, are slow. Pages may load slowly or time out.',
+            tips:['Pause large downloads or streams on your network.','Move closer to your router, or switch to a cable.','Restart your router, or try another network.'] }
+        : { tone:'warn', side:'us', conf:'Likely',
+            title:'Our server is responding slowly',
+            body:'Your connection is fast to other websites, but ' + HOST + ' took ' + fmt(srvMed) + ' to answer. The server may be busy.',
+            tips:['Wait a few minutes and try again.','If it stays slow, contact support and include the report.'] };
+    } else {
+      v = { tone:'ok', side:'none', conf:'Confident',
+        title:'Everything looks healthy',
+        body:'Your device reached ' + HOST + ' in ' + fmt(srvMed) + ' and no problems were found on the way. If the website still will not load, the cause is probably in your browser.',
+        tips:['Reload the page with a hard refresh (Ctrl+Shift+R, or Cmd+Shift+R on Mac).','Turn off browser extensions, VPNs or ad blockers for this site.','Try another browser or a private window.','If nothing helps, contact support and include the report.'] };
+    }
+  } else if (onLine === false && !internet) {
+    v = { tone:'bad', side:'you', conf:'Confident',
+      title:'Your device is offline',
+      body:'Your device reports that it has no network connection, and nothing could be reached. The problem is on your side, before the internet.',
+      tips:['Check that Wi-Fi is on and airplane mode is off.','If you use a cable, check that it is plugged in at both ends.','Reconnect to your Wi-Fi network, then run the check again.'] };
+  } else if (!internet) {
+    v = { tone:'bad', side:'you', conf:'Confident',
+      title:'Your internet connection is down',
+      body:'Neither our server nor any of the independent test sites could be reached, so the break is between your device and the internet: Wi-Fi, router, cable or your provider.',
+      tips:['Restart your router: unplug for 30 seconds, then plug back in.','Check whether another device on the same network can get online.','Try your phone’s mobile hotspot. If that works, your usual network has the problem.','On public Wi-Fi, open any website to see if a login page appears.','If everything fails, contact your internet provider.'] };
+  } else if (dnsBroken) {
+    v = { tone:'bad', side:'you', conf:'Confident',
+      title:'Your network cannot look up website names',
+      body:'Test sites addressed by number were reachable, but none addressed by name were. Your network’s DNS service, which turns names into addresses, is not working.',
+      tips:['Restart your router.','Switch your device or router DNS to 1.1.1.1 or 8.8.8.8.','Turn off any VPN, proxy or private DNS setting, then try again.','Try your phone’s mobile hotspot to confirm.'] };
+  } else if (dn.nx) {
+    v = { tone:'bad', side:'us', conf:'Confident',
+      title:'Our domain is not resolving',
+      body:'Your internet works, but public DNS says ' + HOST + ' does not exist right now. That is a configuration problem on our side and nothing you can fix.',
+      tips:['Please contact support and include the report.','Try again later. DNS fixes can take a while to spread.'] };
+  } else if (dn.servfail) {
+    v = { tone:'bad', side:'us', conf:'Confident',
+      title:'Our domain’s DNS is failing',
+      body:'Your internet works, but the DNS servers for ' + HOST + ' are returning errors. That is a problem on our side.',
+      tips:['Please contact support and include the report.','Try again in a few minutes.'] };
+  } else {
+    const how = allTimedOut
+      ? 'It never answered, which usually means the server is down or traffic to it is being dropped.'
+      : 'The connection failed quickly, which usually means the server is refusing connections or a firewall is rejecting them.';
+    v = { tone:'bad', side:'us', conf:'Likely',
+      title:'Our server is not responding',
+      body:'Your internet works and other websites load, but ' + HOST + ' did not answer. ' + how + ' The most likely cause is an outage or maintenance on our side.',
+      tips:['Wait a few minutes and run the check again.','To rule out your network, try mobile data. If our site works there, something on your network is blocking it.','Turn off any VPN, proxy or security software that filters websites.','If it still fails, contact support and include the report.'] };
+  }
+  return { v, N, facts: { internet, ipOk, hostOk, reach, worst, srvMed, refMed, loss, allTimedOut } };
+}
+
+function render(a) {
+  ORDER.forEach(id => setNode(id, a.N[id].s, a.N[id].t));
+  const { v } = a;
+  app.dataset.tone = v.tone;
+  $('#v-title').textContent = v.title;
+  const who = { you:'The problem is on your side', us:'The problem is on our side', none:'No problem found', unclear:'We can’t tell which side' }[v.side];
+  const whoEl = $('#v-who'); whoEl.replaceChildren(document.createTextNode(who));
+  if (v.conf) { const s = document.createElement('small'); s.textContent = '  ·  ' + v.conf; whoEl.appendChild(s); }
+  $('#v-body').textContent = v.body; $('#v-body').hidden = false;
+  const list = $('#v-tip-list'); list.replaceChildren();
+  v.tips.forEach(t => { const li = document.createElement('li'); li.textContent = t; list.appendChild(li); });
+  $('#v-tips').hidden = !v.tips.length;
+  const [you, us] = document.querySelectorAll('#sides span');
+  you.classList.toggle('hot', v.side === 'you'); us.classList.toggle('hot', v.side === 'us');
+}
+
+/* ───────────────────────── Run ───────────────────────── */
+let running = false, lastReport = '';
+
+async function run() {
+  if (running) return;
+  running = true; $('#again').disabled = true;
+  reset();
+  const data = { onLine: navigator.onLine, refs: [], doh: {}, samples: [] };
+
+  /* 1 · device */
+  setNode('device', 'run', 'Checking…'); await sleep(350);
+  setNode('device', data.onLine === false ? 'fail' : 'ok', data.onLine === false ? 'Your browser says it is offline' : 'Online');
+
+  /* 2 · internet + name lookup (and our domain, in parallel) */
+  ['net', 'dns', 'domain'].forEach(id => setNode(id, 'run', 'Checking…'));
+  const dohP = doh(HOST);
+  data.refs = await Promise.all(REFS.map(async r => {
+    const res = await probe(r.url, { timeout: CONFIG.REF_TIMEOUT_MS });
+    addBar('row-ref', res);
+    addLog(r.name, res.ok ? 'Reachable' : (res.timedOut ? 'Timed out' : 'Failed'), res, res.ok ? 'ok' : 'fail');
+    return { ...r, r: res };
+  }));
+  const rOk = data.refs.filter(x => x.r.ok);
+  const ipOk = data.refs.some(x => x.kind === 'ip' && x.r.ok), hostOk = data.refs.some(x => x.kind === 'host' && x.r.ok);
+  setVal('row-ref', rOk.length ? 'median ' + fmt(median(rOk.map(x => x.r.ms))) : 'no reply');
+  setNode('net', rOk.length ? 'ok' : 'fail', rOk.length + ' of ' + data.refs.length + ' test sites reachable');
+  setNode('dns', hostOk ? 'ok' : (ipOk ? 'fail' : 'unknown'), hostOk ? 'Website names resolve' : (ipOk ? 'Cannot look up website names' : 'Not tested'));
+  await sleep(200);
+
+  data.doh = await dohP;
+  addLog('Public DNS lookup of ' + HOST,
+    data.doh.skipped ? 'Skipped (IP address)' : data.doh.ok ? 'Resolves to ' + data.doh.ips[0] : data.doh.nx ? 'Domain not found' : data.doh.servfail ? 'DNS error' : 'Could not check',
+    null, data.doh.ok ? 'ok' : (data.doh.nx || data.doh.servfail) ? 'fail' : 'warn');
+  setNode('domain', data.doh.ok ? 'ok' : (data.doh.nx || data.doh.servfail) ? 'fail' : 'unknown', data.doh.ok ? 'Resolves to ' + data.doh.ips[0] : 'Checked');
+
+  /* 3 · our server */
+  setNode('server', 'run', 'Checking…');
+  const internet = rOk.length > 0;
+  for (let i = 0; i < CONFIG.SAMPLES; i++) {
+    const r = await probe(serverURL.href, { timeout: CONFIG.TIMEOUT_MS, readable: READABLE });
+    data.samples.push(r); addBar('row-srv', r);
+    addLog('Our server, request ' + (i + 1),
+      r.ok ? (r.status ? 'HTTP ' + r.status : 'Reachable') : (r.timedOut ? 'Timed out' : 'Failed'), r, r.ok ? (r.status >= 500 ? 'fail' : 'ok') : 'fail');
+    if (i === 0 && !r.ok && !internet) break;                         // nothing works — stop early
+    if (i === 1 && data.samples.every(s => !s.ok)) break;              // two misses in a row — enough evidence
+    if (i < CONFIG.SAMPLES - 1) await sleep(300);
+  }
+  const okS = data.samples.filter(s => s.ok);
+  setVal('row-srv', okS.length ? 'median ' + fmt(median(okS.map(s => s.ms))) : 'no reply');
+
+  /* 4 · verdict */
+  const a = analyse(data);
+  render(a);
+  lastReport = buildReport(a, data);
+  $('#stamp').textContent = 'Checked at ' + new Date().toLocaleTimeString();
+  running = false; $('#again').disabled = false;
+}
+
+function buildReport(a, d) {
+  const L = [];
+  L.push('Connection check report' + (CONFIG.SITE_NAME ? ' — ' + CONFIG.SITE_NAME : ''));
+  L.push('Time: ' + new Date().toString());
+  L.push('Page: ' + location.href);
+  L.push('Server tested: ' + serverURL.href + (READABLE ? '' : ' (cross-origin, status not readable)'));
+  L.push('');
+  L.push('Verdict: ' + a.v.title);
+  L.push('Side: ' + a.v.side + (a.v.conf ? ' (' + a.v.conf + ')' : ''));
+  L.push('');
+  L.push('Steps:');
+  ORDER.forEach(id => L.push('  [' + a.N[id].s + '] ' + id + ' — ' + a.N[id].t));
+  L.push('');
+  L.push('Tests:');
+  d.refs.forEach(x => L.push('  ' + x.name + ': ' + (x.r.ok ? 'ok ' + fmt(x.r.ms) : (x.r.timedOut ? 'timed out' : 'failed'))));
+  L.push('  DNS lookup: ' + JSON.stringify(d.doh));
+  d.samples.forEach((s, i) => L.push('  Server #' + (i + 1) + ': ' + (s.ok ? 'ok ' + fmt(s.ms) + (s.status ? ' HTTP ' + s.status : '') : (s.timedOut ? 'timed out' : 'failed after ' + fmt(s.ms)))));
+  L.push('');
+  L.push('Browser online flag: ' + navigator.onLine);
+  L.push('Connection: ' + (connInfo() || 'n/a'));
+  L.push('Language/timezone: ' + navigator.language + ' / ' + (Intl.DateTimeFormat().resolvedOptions().timeZone || 'n/a'));
+  L.push('User agent: ' + navigator.userAgent);
+  return L.join('\n');
+}
+
+/* ───────────────────────── Buttons ───────────────────────── */
+$('#again').addEventListener('click', run);
+$('#retry').addEventListener('click', () => {
+  if (/network-check\.html$/.test(location.pathname)) location.href = CONFIG.HOME_URL; else location.reload();
+});
+$('#copy').addEventListener('click', async () => {
+  const btn = $('#copy'), original = btn.textContent;
+  const text = lastReport || 'The check has not finished yet.';
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch {} ta.remove();
+  }
+  btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = original; }, 1800);
+});
+
+window.addEventListener('online',  () => { if (!running) run(); });
+window.addEventListener('offline', () => { if (!running) run(); });
+
+/* ───────────────────────── Offline copy ───────────────────────── */
+if (CONFIG.SW_URL && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+  navigator.serviceWorker.register(CONFIG.SW_URL)
+    .then(() => navigator.serviceWorker.ready)
+    .then(() => { $('#offline-badge').hidden = false; })
+    .catch(() => {});
+}
+
+run();
+})();
+</script>
+</body>
+</html>
